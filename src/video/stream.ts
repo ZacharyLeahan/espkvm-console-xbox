@@ -23,6 +23,10 @@ const HEADER_LEN = 12;
 const MAGIC = 0x4b;
 const TYPE_JPEG = 1;
 const TYPE_H264 = 2;
+/* The device says it takes frame acks; older firmware would read each ack as
+   a keyframe request, so none are sent until this arrives. */
+const MSG_VIDEO_ACKS = 0x85;
+const MSG_VIDEO_ACK = 0x09;
 
 /** How long to wait for the first frame before deciding the channel is dead. */
 const FIRST_FRAME_TIMEOUT_MS = 2500;
@@ -48,6 +52,9 @@ const MAX_STALL_REBUILDS = 3;
  * background showing blocks that never clear.
  */
 const RESYNC_MIN_GAP_MS = 500;
+
+/** Decoder errors in a row, with no frame between, before the page says so. */
+const MAX_DECODER_ERRORS = 3;
 
 /** Anything a canvas can draw and that must be released afterwards. */
 export type Drawable = (ImageBitmap | VideoFrame) & { close(): void };
@@ -122,9 +129,14 @@ export class VideoStream {
   #lastOutputAt = 0;
   /** Rebuilds since the last frame actually came out; caps runaway stalls. */
   #stallRebuilds = 0;
+  /** Decoder errors since the last frame came out. One is a broken reference
+      chain that a keyframe repairs; only a run of them is worth showing. */
+  #decoderErrors = 0;
   #lastMeta = { width: 0, height: 0, sequence: 0, pts: 0 };
   /** performance.now() of the last keyframe we asked the device for. */
-  #lastResyncAt = 0;
+  #lastResyncAt = -Infinity;
+  /** The device takes frame acks (see MSG_VIDEO_ACKS). */
+  #acks = false;
   #onVisibility = () => this.#visibilityChanged();
 
   constructor(handlers: Handlers) {
@@ -180,8 +192,10 @@ export class VideoStream {
     }
     ws.binaryType = "arraybuffer";
     this.#ws = ws;
+    this.#acks = false;
 
     ws.onopen = () => {
+      if (this.#stopped || this.#ws !== ws) return;
       /* Subscribing happens on our first message: the device cannot send
          during the handshake. */
       ws.send(new Uint8Array([1]));
@@ -208,10 +222,19 @@ export class VideoStream {
   }
 
   async #onMessage(ev: MessageEvent) {
-    if (!(ev.data instanceof ArrayBuffer) || ev.data.byteLength <= HEADER_LEN) return;
+    /* A stopped stream's socket still delivers what was in flight; a keyframe
+       there would build a decoder nobody closes. */
+    if (this.#stopped) return;
+    if (!(ev.data instanceof ArrayBuffer)) return;
+    if (ev.data.byteLength === 1 && new Uint8Array(ev.data)[0] === MSG_VIDEO_ACKS) {
+      this.#acks = true;
+      return;
+    }
+    if (ev.data.byteLength <= HEADER_LEN) return;
     const view = new DataView(ev.data);
     if (view.getUint8(0) !== MAGIC) return;
     const type = view.getUint8(1);
+    if (type !== TYPE_JPEG && type !== TYPE_H264) return;
 
     if (this.#firstFrameTimer !== null) {
       clearTimeout(this.#firstFrameTimer);
@@ -224,6 +247,14 @@ export class VideoStream {
       sequence: view.getUint32(6, true),
       pts: view.getUint16(10, true),
     };
+    /* Acked on arrival: the device then keeps two frames on the way rather
+       than a full buffer of old ones, so a slow link shows a fresh picture. */
+    if (this.#acks && this.#ws?.readyState === WebSocket.OPEN) {
+      const ack = new Uint8Array(5);
+      ack[0] = MSG_VIDEO_ACK;
+      new DataView(ack.buffer).setUint32(1, this.#lastMeta.sequence, true);
+      this.#ws.send(ack);
+    }
 
     if (type === TYPE_JPEG) {
       this.#resetDecoder();
@@ -242,7 +273,8 @@ export class VideoStream {
     try {
       const blob = new Blob([buffer.slice(HEADER_LEN)], { type: "image/jpeg" });
       const bitmap = await createImageBitmap(blob);
-      this.#handlers.onFrame({ image: bitmap, ...meta });
+      if (this.#stopped) bitmap.close();
+      else this.#handlers.onFrame({ image: bitmap, ...meta });
     } catch {
       /* A corrupt frame is not worth reporting; the next one will do. */
     } finally {
@@ -334,18 +366,24 @@ export class VideoStream {
     } catch {
       this.#resetDecoder();
       this.#hadKeyframe = false;
+      this.#resync();
     }
   }
 
   #configure(codec: string) {
-    let decoder: VideoDecoder;
+    let decoder: VideoDecoder | null = null;
     try {
       decoder = new VideoDecoder({
         output: (frame) => {
+          if (this.#stopped || this.#decoder !== decoder) {
+            frame.close();
+            return;
+          }
           /* A frame came out: the decoder is alive, so refresh the watchdog clock
              and clear the rebuild count. */
           this.#lastOutputAt = performance.now();
           this.#stallRebuilds = 0;
+          this.#decoderErrors = 0;
           const meta = this.#lastMeta;
           this.#handlers.onFrame({
             image: frame,
@@ -356,13 +394,18 @@ export class VideoStream {
           });
         },
         error: (err) => {
+          if (this.#stopped || this.#decoder !== decoder) return;
           this.#resetDecoder();
           this.#hadKeyframe = false;
-          this.#handlers.onCodecError(`the H.264 decoder failed: ${err.message}`);
+          this.#resync();
+          if (++this.#decoderErrors >= MAX_DECODER_ERRORS) {
+            this.#handlers.onCodecError(`the H.264 decoder failed: ${err.message}`);
+          }
         },
       });
       decoder.configure({ codec, optimizeForLatency: true });
     } catch (err) {
+      if (decoder && decoder.state !== "closed") decoder.close();
       this.#handlers.onCodecError(
         `this browser refused the H.264 stream (${codec}): ${(err as Error).message}`,
       );
