@@ -291,6 +291,24 @@ export function mockDevice() {
           return json(res, { status: "restarting" });
         }
 
+        if (url === "/api/v1/audio/status") return json(res, { available: true, enabled: true, rate: 48000 });
+        if (url === "/audio.pcm") {
+          // Synthetic 440 Hz stereo tone, strictly confined to dev:mock.
+          res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-store",
+            "X-Audio-Rate": "48000", "X-Audio-Format": "s16le-stereo", "X-Audio-Synthetic": "true" });
+          req.socket.setNoDelay(true);
+          let frame = 0;
+          const timer = setInterval(() => {
+            const pcm = Buffer.alloc(480 * 4);
+            for (let i = 0; i < 480; i++, frame++) {
+              const sample = Math.round(3276 * Math.sin(2 * Math.PI * 440 * frame / 48000));
+              pcm.writeInt16LE(sample, i * 4); pcm.writeInt16LE(sample, i * 4 + 2);
+            }
+            if (!res.write(pcm)) res.destroy();
+          }, 10);
+          res.on("close", () => clearInterval(timer));
+          return;
+        }
         if (url === "/api/capabilities") return json(res, CAPS);
         if (url === "/api/v1/settings/schema") return json(res, SCHEMA);
         if (url === "/api/v1/settings" && req.method === "GET") return json(res, values);

@@ -24,6 +24,7 @@ import MediaPanel from "./components/MediaPanel.vue";
 import PowerWidget from "./components/PowerWidget.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import VideoWidget from "./components/VideoWidget.vue";
+import AudioWidget from "./components/AudioWidget.vue";
 import ToastHost from "./components/ToastHost.vue";
 import KeyboardPanel from "./components/KeyboardPanel.vue";
 import TouchControls from "./components/TouchControls.vue";
@@ -1537,6 +1538,7 @@ const LED_BITS: Array<[number, string]> = [
         <span :class="['dot', online ? 'dot-ok' : 'dot-bad']" />
         {{ online ? "Online" : "Unreachable" }}
       </span>
+      <AudioWidget v-if="online" />
       <VideoWidget
         v-if="online"
         :status="status"

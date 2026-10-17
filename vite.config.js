@@ -66,6 +66,7 @@ export default defineConfig(({ mode }) => {
           host: true,
           proxy: {
             "/stream": proxyRoute(target, { timeout: 0 }),
+            "/audio.pcm": proxyRoute(target, { timeout: 0 }),
             "/api": proxyRoute(target),
             /* Both websockets, or dev mode has input but no picture. */
             "/ws": wsRoute(target),
