@@ -407,7 +407,6 @@ async function removeImage(name: string) {
         </p>
         <p v-if="!storage.writable" class="setting-note setting-note-blocked">
           {{ storage.writeReason ?? "The card is read-only on this device." }}
-          Format it FAT32 or exFAT.
         </p>
         <label
           v-if="storage.writable"

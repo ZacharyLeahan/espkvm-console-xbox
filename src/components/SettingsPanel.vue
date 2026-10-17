@@ -9,7 +9,7 @@ import Icon from "./Icon.vue";
  * device's own reason, rather than hidden. Hiding it would leave the operator
  * wondering whether the feature exists at all.
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 
 import {
   type SettingSection,
@@ -43,6 +43,7 @@ import {
 import { runRestart } from "../state/restart";
 import { TIME_ZONES, browserZone, zoneName, zoneOptions } from "../state/timezones";
 import { toast } from "../state/toasts";
+import { createSettingsEditor, groupSettings, type EditorState } from "../state/settingsEditor";
 
 const props = defineProps<{
   schema: Setting[];
@@ -314,8 +315,10 @@ const pinMap = computed(() => {
 });
 
 const active = ref("");
-const currentSection = computed(() => active.value || sections.value[0] || "video");
-const busy = ref(false);
+const currentSection = computed(() => active.value || sections.value[0]?.id || "video");
+const bulkBusy = ref(false);
+const editorState = reactive<EditorState>({ pending: 0, drafts: {} });
+const busy = computed(() => bulkBusy.value || editorState.pending > 0);
 
 const rows = computed(() => props.schema.filter((s) => s.section === currentSection.value));
 
@@ -383,19 +386,10 @@ const displayRows = computed(() => {
  * The rows as the device groups them: a heading, then its settings. A setting
  * with no group of its own comes first, under no heading at all.
  */
-const grouped = computed(() => {
-  const rowsNow = query.value.trim() ? searchHits.value : displayRows.value;
-  const out: { name: string; rows: Setting[] }[] = [];
-  for (const row of rowsNow) {
-    const name = query.value.trim()
-      ? sectionTitle(row.section)
-      : (row.group ?? "");
-    const last = out[out.length - 1];
-    if (last && last.name === name) last.rows.push(row);
-    else out.push({ name, rows: [row] });
-  }
-  return out;
-});
+const grouped = computed(() => groupSettings(
+  query.value.trim() ? searchHits.value : displayRows.value,
+  Boolean(query.value.trim()), sectionTitle,
+));
 
 /* The I2C OLEDs (SSD1306/SH1106) ride the capture chip's I2C bus rather than pins
  * of their own - so there is nothing to configure, but the operator still needs to
@@ -446,16 +440,12 @@ function blockedFor(s: Setting): string | null {
   return sectionBlocked.value ? null : settingBlockedReason(s, props.caps);
 }
 
-async function write(key: string, value: number | string | boolean) {
-  busy.value = true;
-  try {
-    emit("values", await saveSettings({ [key]: value }));
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    busy.value = false;
-  }
-}
+const editor = createSettingsEditor(editorState,
+  (key, value) => saveSettings({ [key]: value }),
+  (values) => emit("values", values),
+  (err) => toast.error(err instanceof Error ? err.message : String(err)),
+);
+const { write, commit, shown } = editor;
 
 /* A focused native <select> or number <input> changes its value on mouse-wheel,
  * so idly scrolling the settings page while the cursor passes over one silently
@@ -618,29 +608,33 @@ async function onSettingsFile(e: Event) {
     return;
   }
   if (!confirm(`Apply this file?\n\n${describePlan(plan, false).join("\n\n")}`)) return;
-  busy.value = true;
+  bulkBusy.value = true;
   try {
+    await editor.flush();
     emit("values", await saveSettings(plan.apply));
+    for (const key of Object.keys(plan.apply)) delete editorState.drafts[key];
     importReport.value = describePlan(plan, true);
     toast.info("Settings loaded from the file");
   } catch (err) {
     importReport.value = [];
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
-    busy.value = false;
+    bulkBusy.value = false;
   }
 }
 
 async function doReset() {
   if (!confirm("Restore every setting to its default?")) return;
-  busy.value = true;
+  bulkBusy.value = true;
   try {
+    await editor.flush();
     emit("values", await resetSettings());
+    for (const key of Object.keys(editorState.drafts)) delete editorState.drafts[key];
     toast.info("Settings restored to defaults");
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
-    busy.value = false;
+    bulkBusy.value = false;
   }
 }
 
@@ -782,7 +776,7 @@ async function doRevertCert() {
             </p>
           </div>
 
-          <template v-for="block in grouped" :key="block.name || 'first'">
+          <template v-for="block in grouped" :key="block.key">
             <h3 v-if="block.name" class="settings-group">{{ block.name }}</h3>
             <div
               v-for="s in block.rows"
@@ -895,10 +889,11 @@ async function doRevertCert() {
                   class="num-input"
                   :min="s.min"
                   :max="s.max"
-                  :value="Number(values[s.key] ?? 0)"
-                  :disabled="busy || !!sectionBlocked || !!blockedFor(s)"
+                  :value="shown(s.key, String(Number(values[s.key] ?? 0)))"
+                  :disabled="bulkBusy || !!sectionBlocked || !!blockedFor(s)"
+                  @input="editor.edit(s.key, ($event.target as HTMLInputElement).value)"
                   @change="
-                    write(
+                    commit(
                       s.key,
                       Number(($event.target as HTMLInputElement).value),
                     )
@@ -964,10 +959,11 @@ async function doRevertCert() {
                   data-lpignore="true"
                   data-form-type="other"
                   :maxlength="s.maxLength"
-                  :value="String(values[s.key] ?? '')"
-                  :disabled="busy || !!sectionBlocked || !!blockedFor(s)"
+                  :value="shown(s.key, String(values[s.key] ?? ''))"
+                  :disabled="bulkBusy || !!sectionBlocked || !!blockedFor(s)"
+                  @input="editor.edit(s.key, ($event.target as HTMLInputElement).value)"
                   @change="
-                    write(s.key, ($event.target as HTMLInputElement).value)
+                    commit(s.key, ($event.target as HTMLInputElement).value)
                   "
                 />
               </div>
