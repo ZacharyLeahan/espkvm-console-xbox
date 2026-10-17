@@ -149,6 +149,11 @@ export interface RecordStatus {
   bytes: number;
   /** Frames left out because the card fell behind. */
   dropped: number;
+  /** AAC audio in this recording; counters are PCM frames per channel. */
+  audio?: boolean;
+  audioFrames?: number;
+  audioDropped?: number;
+  audioSilenceFrames?: number;
   /** Why the last recording ended, or "". */
   stopped: string;
   /** Why a recording cannot start now, or null when it can. */

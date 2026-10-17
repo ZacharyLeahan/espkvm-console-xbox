@@ -624,7 +624,8 @@ async function toggleRecording() {
       const r = await stopRecording();
       toast.info(`${r.timelapse ? "Timelapse" : "Recording"} saved to ${r.file}`);
     } else {
-      await startRecording();
+      const started = await startRecording();
+      toast.info(started.audio ? "Recording video and HDMI audio" : "Recording video");
     }
     status.value = await loadVideoStatus();
   } catch (err) {
@@ -1946,7 +1947,7 @@ const LED_BITS: Array<[number, string]> = [
           :aria-label="record.on ? 'Stop recording' : 'Record to the microSD card'"
           :title="
             record.on
-              ? `${record.timelapse ? 'Timelapse' : 'Recording'} to ${record.file} - click to stop`
+              ? `${record.timelapse ? 'Timelapse' : record.audio ? 'Video and audio' : 'Video'} to ${record.file} - click to stop`
               : (record.blocked ?? 'Record the screen to the microSD card (VIDEO)')
           "
           :disabled="(!record.on && !!record.blocked) || recordBusy"
