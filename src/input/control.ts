@@ -1,3 +1,4 @@
+import { decodeControllers, type ControllerStatus } from "./controllers";
 /*
  * The control channel to the device: protocol v2, defined in
  * components/kvm_web/http_server.c.
@@ -64,6 +65,7 @@ export interface UpdateState {
 }
 
 interface Handlers {
+  onControllers?(state: ControllerStatus[]): void;
   onTarget(state: TargetState): void;
   onConnection(state: ConnectionState): void;
   onControl(state: ControlState): void;
@@ -138,6 +140,13 @@ export class Control {
           leds: b[2],
           known: true,
         });
+      } else if (b[0] === 0x85) {
+        const rows = decodeControllers(b.subarray(1));
+        if (rows) {
+          this.#handlers.onControllers?.(rows);
+          if (this.#ping !== null) clearInterval(this.#ping);
+          this.#ping = window.setInterval(() => this.#send(new Uint8Array([MSG_PING])), 500);
+        }
       } else if (b[0] === MSG_CONTROL && b.length >= 2) {
         this.#handlers.onControl(b[1] === 1 ? "you" : b[1] === 2 ? "free" : "held");
       } else if (b[0] === MSG_UPDATE && b.length >= 3) {
