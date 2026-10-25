@@ -24,6 +24,7 @@ import MediaPanel from "./components/MediaPanel.vue";
 import PowerWidget from "./components/PowerWidget.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import VideoWidget from "./components/VideoWidget.vue";
+import ControllerStrip from "./components/ControllerStrip.vue";
 import AudioWidget from "./components/AudioWidget.vue";
 import ToastHost from "./components/ToastHost.vue";
 import KeyboardPanel from "./components/KeyboardPanel.vue";
@@ -966,7 +967,7 @@ const conns = computed<Conn[]>(() => {
       title: !input.target.value.known
         ? "USB - control channel down"
         : input.target.value.attached
-          ? "USB - the target sees the keyboard and mouse"
+          ? input.controllers.value ? "Player 1 - Xbox USB configured" : "USB - the target sees the keyboard and mouse"
           : input.target.value.busAlive
             ? "USB - the target is not taking the keyboard"
             : "USB - no power on the target's port",
@@ -1539,6 +1540,7 @@ const LED_BITS: Array<[number, string]> = [
         <span :class="['dot', online ? 'dot-ok' : 'dot-bad']" />
         {{ online ? "Online" : "Unreachable" }}
       </span>
+      <ControllerStrip v-if="input.controllers.value" :players="input.controllers.value" :connected="input.connection.value === 'open'" @inspect="engaged = false" />
       <AudioWidget v-if="online" />
       <VideoWidget
         v-if="online"

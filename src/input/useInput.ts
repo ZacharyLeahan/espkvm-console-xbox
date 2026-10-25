@@ -1,3 +1,4 @@
+import type { ControllerStatus } from "./controllers";
 /*
  * Turns browser events into HID reports for the target.
  *
@@ -39,6 +40,7 @@ export interface InputOptions {
 const MAX_KEYS = 6;
 
 export function useInput(opts: InputOptions) {
+  const controllers = ref<ControllerStatus[] | null>(null);
   const target = ref<TargetState>({ attached: false, busAlive: false, leds: 0, known: false });
   const connection = ref<ConnectionState>("connecting");
   /* Who holds the single control session. Assume it is ours until the device
@@ -52,6 +54,7 @@ export function useInput(opts: InputOptions) {
   let buttonsHeld = 0;
 
   const control = new Control({
+    onControllers: rows => { controllers.value = rows; },
     onTarget: (t) => (target.value = t),
     onConnection: (c) => {
       connection.value = c;
@@ -299,5 +302,5 @@ export function useInput(opts: InputOptions) {
     control.mouseAbsolute(0, p.x, p.y);
   }
 
-  return { target, connection, controlState, updateState, control, engageFromPointer };
+  return { controllers, target, connection, controlState, updateState, control, engageFromPointer };
 }
