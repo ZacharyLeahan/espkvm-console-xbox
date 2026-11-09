@@ -21,7 +21,7 @@ const known = computed(() => props.connected && now.value - received.value < 300
 const current = computed(() => props.players.find(p => p.player === selected.value));
 const age = (n: number) => n < 0 ? 'Not observed' : `${((n + Math.max(0, now.value - received.value)) / 1000).toFixed(1)} s ago`;
 const pulse = (p: ControllerStatus) => known.value && p.activityAgeMs >= 0 && p.activityAgeMs + now.value - received.value < 1000;
-const staleBeacon = (p: ControllerStatus) => p.seen && p.beaconAgeMs + now.value - received.value >= 4000;
+const staleBeacon = (p: ControllerStatus) => p.transport !== 'direct' && p.seen && p.beaconAgeMs >= 0 && p.beaconAgeMs + now.value - received.value >= 4000;
 </script>
 <template>
   <div class="controllers" @keydown.esc="selected = null">
@@ -39,8 +39,9 @@ const staleBeacon = (p: ControllerStatus) => p.seen && p.beaconAgeMs + now.value
       <p>{{ controllerLabel(current, known) }}</p>
       <p v-if="!known" role="status">Waiting for current status from the main ESP.</p>
       <dl v-else>
-        <dt>Receiver</dt><dd>{{ current.ip || 'Not discovered' }}</dd>
-        <dt>Discovery</dt><dd>{{ age(current.beaconAgeMs) }}{{ staleBeacon(current) ? ' - stale; unicast may still work' : '' }}</dd>
+        <dt>Connection</dt><dd>{{ current.transport === 'direct' ? 'P1 DEVICE USB' : 'Wi-Fi receiver' }}</dd>
+        <dt>Receiver</dt><dd>{{ current.transport === 'direct' ? 'Main ESP' : current.ip || 'Not discovered' }}</dd>
+        <template v-if="current.transport !== 'direct'"><dt>Discovery</dt><dd>{{ age(current.beaconAgeMs) }}{{ staleBeacon(current) ? ' - stale; unicast may still work' : '' }}</dd></template>
         <dt>Input sent</dt><dd>{{ current.held === '-' ? 'Neutral' : current.held || 'Not observed' }}<span v-if="current.activityAgeMs >= 0"> - last active {{ age(current.activityAgeMs) }}</span></dd>
         <dt>Reports sent</dt><dd>{{ current.sent }}<span v-if="current.sendErrors"> - {{ current.sendErrors }} send errors</span></dd>
         <dt>USB submitted</dt><dd>{{ current.submitted ?? 'Not observed' }}</dd>
