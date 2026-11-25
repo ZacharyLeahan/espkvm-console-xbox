@@ -147,7 +147,11 @@ export interface RecordStatus {
   file: string;
   seconds: number;
   bytes: number;
-  /** Frames left out because the card fell behind. */
+  inputHz?: number;
+  savedFpsX100?: number;
+  longestGapUs?: number;
+  audioRate?: number;
+  /** Broken published-frame sequences and rejected recorder queue pushes. */
   dropped: number;
   /** AAC audio in this recording; counters are PCM frames per channel. */
   audio?: boolean;
