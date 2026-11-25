@@ -1958,6 +1958,17 @@ const LED_BITS: Array<[number, string]> = [
           <Icon :name="record.on ? 'stop' : 'record'" :size="15" />
           <span v-if="record.on" class="mono">{{ clock(record.seconds) }}</span>
         </button>
+        <span v-if="record?.file && record.savedFpsX100 != null && !record.timelapse && !record.dashcam" class="mono">
+          HDMI {{ record.inputHz }} Hz &middot; SD {{ (record.savedFpsX100 / 100).toFixed(1) }} fps
+          <template v-if="!record.on">
+            &middot; longest gap {{ ((record.longestGapUs ?? 0) / 1000).toFixed(1) }} ms
+            <template v-if="record.audioRate">
+              &middot; audio lost {{ (((record.audioDropped ?? 0) * 1000) / record.audioRate).toFixed(1) }} ms,
+              silence {{ (((record.audioSilenceFrames ?? 0) * 1000) / record.audioRate).toFixed(1) }} ms
+            </template>
+            &middot; {{ record.dropped }} recorder queue/reference loss events
+          </template>
+        </span>
         <button
           type="button"
           class="btn btn-sm"
